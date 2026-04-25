@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Ignore local Terraform variable definitions
+*.tfvars
+*.tfvars.json
+
+# Ignore Terraform local state and backups
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Ignore sensitive credential files
+.aws/
+credentials

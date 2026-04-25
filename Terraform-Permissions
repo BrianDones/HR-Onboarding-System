@@ -1,0 +1,89 @@
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Sid": "TerraformBackendAccess",
+			"Effect": "Allow",
+			"Action": [
+				"s3:ListBucket",
+				"s3:GetBucketLocation",
+				"s3:GetObject",
+				"s3:PutObject",
+				"dynamodb:GetItem",
+				"dynamodb:PutItem",
+				"dynamodb:DeleteItem",
+				"dynamodb:DescribeTable"
+			],
+			"Resource": [
+				"arn:aws:s3:::<Your S3 Bucket ARN>",
+				"arn:aws:s3:::<Your S3 Bucket ARN>/*",
+				"arn:aws:dynamodb:*:*:table/terraform-lock-table"
+			]
+		},
+		{
+			"Sid": "LambdaRoleAuditing",
+			"Effect": "Allow",
+			"Action": [
+				"iam:ListRolePolicies",
+				"iam:GetRolePolicy",
+				"iam:ListAttachedRolePolicies"
+			],
+			"Resource": [
+				"arn:aws:iam::*:role/hr-processor-role",
+				"arn:aws:iam::*:role/slack-provisioner-role"
+			]
+		},
+		{
+			"Sid": "IamRoleManagement",
+			"Effect": "Allow",
+			"Action": [
+				"iam:*"
+			],
+			"Resource": [
+				"arn:aws:iam::*:role/hr-processor-role",
+				"arn:aws:iam::*:role/slack-provisioner-role"
+			]
+		},
+		{
+			"Sid": "LambdaAndSecretsManagement",
+			"Effect": "Allow",
+			"Action": [
+				"lambda:*",
+				"dynamodb:*",
+				"secretsmanager:GetSecretValue"
+			],
+			"Resource": [
+				"arn:aws:secretsmanager:us-east-1:*:secret:slack/token*",
+				"arn:aws:dynamodb:us-east-1:*:table/EmployeesTable",
+				"arn:aws:lambda:us-east-1:*:function:hr_processor",
+				"arn:aws:lambda:us-east-1:*:function:slack_provisioner",
+				"arn:aws:lambda:us-east-1:*:function:get_employee"
+			]
+		},
+		{
+			"Sid": "CognitoAndAPIGatewayManagement",
+			"Effect": "Allow",
+			"Action": [
+				"cognito-idp:CreateUserPool",
+				"cognito-idp:DeleteUserPool",
+				"cognito-idp:UpdateUserPool",
+				"cognito-idp:DescribeUserPool",
+				"cognito-idp:GetUserPoolMfaConfig",
+				"cognito-idp:CreateUserPoolClient",
+				"cognito-idp:DeleteUserPoolClient",
+				"cognito-idp:UpdateUserPoolClient",
+				"cognito-idp:DescribeUserPoolClient",
+				"cognito-idp:AdminCreateUser",
+				"cognito-idp:AdminDeleteUser",
+				"apigateway:GET",
+				"apigateway:POST",
+				"apigateway:PUT",
+				"apigateway:DELETE"
+			],
+			"Resource": [
+				"arn:aws:cognito-idp:us-east-1:*:userpool/*",
+				"arn:aws:execute-api:us-east-1:*:*"
+			]
+		}
+	]
+}

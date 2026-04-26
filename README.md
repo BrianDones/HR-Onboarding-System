@@ -62,6 +62,17 @@ While we can keep the Terraform State file saved locally on our workstation, we 
 1. Search for **DynamoDB** at the top of the AWS Console.
 2. Click **Create table**. 
 3. Set the **Table name** to *terraform-lock-table*. Type in *LockID* as the **Partition key** with the type set to *String*. 
-4. Click **Create table**. 
+4. Click **Create table**.
+
+### 8. Create the Slack Token Secret
+1. Search for **Secrets Manager** at the top of the AWS Console. 
+2. Click **Store a new secret**. 
+3. Set the **Secret type** to *Other type of secret* and set the following key/value pair: 
+	Key = token
+	Value = this-is-your-actual-slack-token
+
+**Important Note**: If we use this solution in Production, we will need to update the value to the actual Slack token for our Company's Slack Workspace.
+
+4. Click **Next**, give your secret credentials a name (I used "slack/token"), then click **Next** > **Next** >> **Store**. 
 
 ## HR Onboarding System Cloud Architecture and Technical Considerations

@@ -223,6 +223,7 @@ __marimo__/
 
 # Ignore Terraform local state and backups
 .terraform/
+.terraform*
 *.tfstate
 *.tfstate.backup
 

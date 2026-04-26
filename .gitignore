@@ -229,3 +229,7 @@ __marimo__/
 # Ignore sensitive credential files
 .aws/
 credentials
+
+# Ignore the provider configurationfile where we 
+# set the location of the Terraform State file. 
+backend.conf

@@ -1,0 +1,6 @@
+bucket         = "<YOUR S3 Bucket ARN>"
+key            = "hr-onboarding-system/terraform.tfstate"
+region         = var.aws_region
+dynamodb_table = "<YOUR DynamoDB Lock Table>"
+encrypt        = true
+profile        = "<YOUR SSO USER PROFILE>"

@@ -73,6 +73,54 @@ While we can keep the Terraform State file saved locally on our workstation, we 
 
 **Important Note**: If we use this solution in Production, we will need to update the value to the actual Slack token for our Company's Slack Workspace.
 
-4. Click **Next**, give your secret credentials a name (I used "slack/token"), then click **Next** > **Next** >> **Store**. 
+4. Click **Next**, give your secret credentials a name (I used "slack/token"), then click **Next** > **Next** > **Store**. 
 
 ## HR Onboarding System Cloud Architecture and Technical Considerations
+
+For our System's architecture we will be focusing on an **serverless event-driven** type of architecture. By using a serverless event-driven approach, we can prioritize scalability, cost-effiency, and leverage security options. 
+
+### Access Layer: Amazon API Gateway over ALB/ELBs with Auto Scaling Groups
+- **Cost Efficiency**: With EC2 instances and Load Balancers, you pay for the uptime of the servers regardless if the system is being used or not. With API Gateway, you only pay for the requests that are made, so by leverage the "pay for what you use" nature of API Gateway, we significantly decrease our cost.
+
+- **Security Features**: 
+	1. DDoS Protection - In front of API Gateways we have the AWS edge network that provides protection against common web attacks. EC2 instances need to be protected using Security Groups, NACLs, and AWS Shield increasing the cost and what we need to be managed. 
+
+	2. Cognito Integration - API Gateway has a built-in authorizer for Amazon Cognito simplifying the integration and allows us to use JSON Web (JWT) Tokens for authentication instead of keys for IAM users. Setting up a similar security solution on EC2 instances would require custom code to handle and validate the JWT token. 
+
+	**Note**:We will use this later on in our system after we have set up the fundamental parts first. 
+
+- **Scalability**: Scaling an environment with an ALB/EC2 setup would involve configuring Auto Scaling Groups. This may result in the front end API being slow or unresponsive while the ASG "warms-up" in reponse to sudden, rapid increases in traffic. API Gateway scales instantly and automatically without any additional configuration or warming up needed. 
+
+- **Maintainance/Patching**: With our API Gateway and Lambda solution, we have no maintenance or patching involved! AWS handles the maintenance and patching requirements of the underlining infrastructure -- all we need to worry about is configuring our solution correctly. With the ALB and Auto Scaling Group solution, performing maintenances and OS patching of the EC2 instances in the ASG would be our responsibility. 
+
+- **Complexity**: The complexity of our API Gateway and Lambda solution is very low. Most of the configuration and work goes into defining the resources within Terraform. There is also no need to define VPCs, Subnets, or Security Groups -- our API Gateway is available to us through a publicly accessible endpoint which can be secured with the addition of Cognito. The ALB and Auto Scaling Group solution would be much more involved. Not only are we going to have to define our network resources (VPCs, Subnets, Security Groups, any service endpoints required, etc) but we also need to figure out how we are going to get the EC2 instances in our Auto Scaling Group into our ideal state with our code/application installed. This could mean baking AMIs with our code/application and any dependencies already installed or perhaps using CodeDeploy to handle deploying and configuring our code/application. AMI baking means anytime we need to patch or update our code, we need to run our baking process and create a new AMI. CodeDeploy would increase the deployment time of new EC2 instances when scaling events occur. We would also need to write up deployment scripts to handle installing dependencies and configure the application.
+
+### Compute Layer: AWS Lambda
+
+AWS Lambda is a great choice for our compute layer because we can decouple our solution into seperate lambda functions that handle specific tasks and features (e.g. `hr-processor`, `slack-provisioner`, etc). By breaking up our solution into these split lambda functions, our HR Onboarding System will not fail to add new employee information if the Slack Provisioning API fails. We can always retry the Slack invitation at a later point independent of the other lambda functions. We are also better able to troubleshoot issues with our lambda functions when our functions are designed to focus on one specific task. 
+
+### Data Layer: Amazon DynamoDB with Streams
+
+We will use DynamoDB for our solution due to the following: 
+1. DynamoDB is instantly available and able to handle bursts of traffic without the need to "warm up" connections. There are no persistent conections to manage so Lambda can scale to thousands of concurrent executions. 
+2. We can leverage DynamoDB Streams to provide a real-time stream of every change that happens in the table giving us the event-driven integration we need.
+3. DynamoDB has schema flexibility so if we need to add new employee information at a later time, we can update those fields in our Lambda function. This is way more flexible and convenient than solutions with strict schemas that would require migrating our data every time we need to change the employee data structure. 
+
+### Security: AWS Secrets Manager and AWS Cognito
+
+AWS Secrets Manager is used to store and encrypt at rest our Slack Token so the token is not visible in plain text as an environment variable for our lambda functions. Our functions will be designed to retreive the secret so if we ever need to update our token we do not have to worry about updating any code or variables -- we only have to swap out the token in Secrets Manager. We can also use IAM policies to restrict access to the token. 
+
+AWS Cognito will be used so we can restrict access to the API only to HR staff or members of the company that need to have access to that API. 
+
+### Infrastructure as Code: Terraform
+
+To help us and manage our solution, we will be using Terraform as our Instracture as Code (IaC) tool for the following reasons: 
+
+1. Terraform can be used to deploy resource on multiple cloud providers unlike proprietary solutions like CloudFormation allowing us more flexibility depending on our needs. 
+2. Terraform can also handle deploying resources in parallel significantly reducing the time to deploy. 
+3. Terraform is very easy to use. By running `terraform plan` we can see exactly what Terraform will do before making the changes. 
+4. Terraform keeps track of resources in the Terraform State file so if someone manually changes resources, Terraform can detect those changes (this is know as drift). 
+5. If we want to deploy different environments (such as  production, staging, or development) with the same solution we can easily do so and manage those deployments with Terraform. 
+6. When we are ready to remove all our resources for this solution, we can run a `terraform destroy` command and Terraform will delete all resources that Terraform manages. 
+
+**Note**: The resources that were manually created outside of Terraform that was part of our setup does need to be manually deleted.

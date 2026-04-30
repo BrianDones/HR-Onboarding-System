@@ -15,11 +15,22 @@
 				"dynamodb:DescribeTable"
 			],
 			"Resource": [
-				"arn:aws:s3:::<Your S3 Bucket ARN>",
-				"arn:aws:s3:::<Your S3 Bucket ARN>/*",
-				"arn:aws:dynamodb:*:*:table/terraform-lock-table"
+				"arn:aws:s3:::<Your S3 Bucket Name>",
+				"arn:aws:s3:::<Your S3 Bucket Name>/*",
+				"arn:aws:s3:::<Your S3 Bucket Name>/*/terraform.tfstate*",
+				"arn:aws:s3:::<Your S3 Bucket Name>/*/terraform.tfstate.tflock"
 			]
 		},
+		{
+			"Sid" "TerraformLockManagement",
+			"Effect": "Allow", 
+			"Action": [
+				"s3:*"
+			],
+			"Resource": [
+				"arn:aws:s3:::<Your S3 Bucket ARN>/*/"
+			]
+		}
 		{
 			"Sid": "LambdaRoleAuditing",
 			"Effect": "Allow",

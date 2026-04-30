@@ -9,3 +9,15 @@ variable "environment" {
   type        = string
   default     = "staging"
 }
+
+variable "table_name" {
+  description = "Name of the Employee Information DynamoDB table"
+  type        = string
+  default     = "EmployeesTable"
+}
+
+variable "slack_secret_name" {
+  description = "The name of the secret in AWS Secrets Manager"
+  type        = string
+  default     = "slack/token"
+}

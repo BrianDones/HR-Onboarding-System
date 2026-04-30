@@ -58,13 +58,7 @@ While we can keep the Terraform State file saved locally on our workstation, we 
 2. Make sure you are in the correct region, then select **Create bucket**. 
 3. Give your S3 bucket an appropriate name (I called mine dones-terraform-state). Change the **Bucket namespace** value to *Account Regional namespace*. Leave all the other default settings as is **except** for Bucket Versioning. Make sure versioning is enabled. Click **Create bucket**.
 
-### 7. Create a Terraform Lock Table in DynamoDB
-1. Search for **DynamoDB** at the top of the AWS Console.
-2. Click **Create table**. 
-3. Set the **Table name** to *terraform-lock-table*. Type in *LockID* as the **Partition key** with the type set to *String*. 
-4. Click **Create table**.
-
-### 8. Create the Slack Token Secret
+### 7. Create the Slack Token Secret
 1. Search for **Secrets Manager** at the top of the AWS Console. 
 2. Click **Store a new secret**. 
 3. Set the **Secret type** to *Other type of secret* and set the following key/value pair: 

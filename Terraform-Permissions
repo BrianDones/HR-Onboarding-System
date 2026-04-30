@@ -89,11 +89,13 @@
 				"apigateway:GET",
 				"apigateway:POST",
 				"apigateway:PUT",
-				"apigateway:DELETE"
+				"apigateway:DELETE",
+				"apigateway:PATCH"
 			],
 			"Resource": [
 				"arn:aws:cognito-idp:us-east-1:*:userpool/*",
-				"arn:aws:execute-api:us-east-1:*:*"
+				"arn:aws:execute-api:us-east-1:*:*",
+				"arn:aws:apigateway:us-east-1::/*"
 			]
 		}
 	]

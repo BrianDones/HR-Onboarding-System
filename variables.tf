@@ -21,3 +21,9 @@ variable "slack_secret_name" {
   type        = string
   default     = "slack/token"
 }
+
+variable "application_version" {
+  description = "The version of our HR Onboarding System"
+  type        = string
+  default     = "0"
+}

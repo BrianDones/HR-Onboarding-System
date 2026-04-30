@@ -11,7 +11,7 @@ resource "aws_dynamodb_table" "employees" {
   }
 
   # Enables the stream for the Slack Provisioner to listen to for events
-  stream_enabled    = true
+  stream_enabled   = true
   stream_view_type = "NEW_IMAGE"
 }
 
@@ -25,8 +25,8 @@ resource "aws_iam_role" "hr_processor_role" {
       Version = "2012-10-17"
       Statement = [
         {
-          Action    = "sts:AssumeRole"
-          Effect    = "Allow"
+          Action = "sts:AssumeRole"
+          Effect = "Allow"
           Principal = {
             Service = "lambda.amazonaws.com"
           }
@@ -66,7 +66,7 @@ resource "aws_iam_role_policy" "hr_processor_policy" {
       ]
     }
   )
-}  
+}
 
 # Lambda role for the Slack Provisioner Lambda function
 resource "aws_iam_role" "slack_provisioner_role" {
@@ -119,8 +119,8 @@ resource "aws_iam_role_policy" "slack_provisioner_policy" {
           Resource = "${aws_dynamodb_table.employees.arn}"
         },
         {
-          Effect = "Allow"
-          Action = "secretsmanager:GetSecretValue"
+          Effect   = "Allow"
+          Action   = "secretsmanager:GetSecretValue"
           Resource = "arn:aws:secretsmanager:${var.aws_region}:*:secret:${var.slack_secret_name}-*"
         },
         {
@@ -135,4 +135,112 @@ resource "aws_iam_role_policy" "slack_provisioner_policy" {
       ]
     }
   )
+}
+
+# 3. API Gateway Resources
+# Main Employee API
+resource "aws_api_gateway_rest_api" "employees_api" {
+  name        = "EmployeesAPI-v${var.application_version}"
+  description = "API for the HR Onboarding System for new employees"
+}
+
+resource "aws_api_gateway_resource" "employee_resource" {
+  rest_api_id = aws_api_gateway_rest_api.employees_api.id
+  parent_id   = aws_api_gateway_rest_api.employees_api.root_resource_id
+  path_part   = "employees"
+}
+
+# POST Method
+resource "aws_api_gateway_method" "post_employee" {
+  rest_api_id   = aws_api_gateway_rest_api.employees_api.id
+  resource_id   = aws_api_gateway_resource.employee_resource.id
+  http_method   = "POST"
+  authorization = "None"
+}
+
+# POST Method Integration
+resource "aws_api_gateway_integration" "post_employee_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.employees_api.id
+  resource_id             = aws_api_gateway_resource.employee_resource.id
+  http_method             = aws_api_gateway_method.post_employee.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.hr_processor.invoke_arn
+
+  depends_on = [aws_api_gateway_method.post_employee]
+}
+
+# API Gateway Deployment & Stage
+# For information regarding API Gateway Deployments and Stages, 
+# please refer to Amazon's documentation: 
+# https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-stages.html
+
+resource "aws_api_gateway_deployment" "employee_api_deployment" {
+  rest_api_id = aws_api_gateway_rest_api.employees_api.id
+
+  # Ensures that a redeployment occurs when the API configurations change
+  # for our POST method
+  triggers = {
+    redeployment = sha1(jsonencode(
+      [
+        aws_api_gateway_method.post_employee.id
+      ]
+    ))
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  depends_on = [
+    aws_api_gateway_integration.post_employee_integration
+  ]
+}
+
+resource "aws_api_gateway_stage" "stage" {
+  deployment_id = aws_api_gateway_deployment.employee_api_deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.employees_api.id
+  stage_name    = var.environment
+}
+
+# 4. Lambda Functions
+
+# Lambda expects code to be in zip format so we are having
+# Terraform handle automating zipping the Python source code 
+# for our Lambda functions. 
+data "archive_file" "lambda_functions_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda_code"
+  output_path = "${path.module}/lambda_functions_code.zip"
+}
+
+# HR Processor Lambda Function used to: 
+# - Add new employees to the employees database
+# - Generate a unique user id for employees
+resource "aws_lambda_function" "hr_processor" {
+  filename         = data.archive_file.lambda_functions_zip.output_path
+  source_code_hash = data.archive_file.lambda_functions_zip.output_base64sha256
+  function_name    = "hr_processor"
+  role             = aws_iam_role.hr_processor_role.arn
+  handler          = "hr-processor-function.handler"
+  runtime          = "python3.13"
+
+  environment {
+    variables = {
+      TABLE_NAME = aws_dynamodb_table.employees.name
+    }
+  }
+
+  depends_on = [aws_iam_role_policy.hr_processor_policy]
+}
+
+# 5. API Gateway Permissions to Invote Lambda Functions
+resource "aws_lambda_permission" "apigw_hr_processor_lambda" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.hr_processor.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.employees_api.execution_arn}/*/*"
+
+  depends_on = [aws_api_gateway_deployment.employee_api_deployment]
 }

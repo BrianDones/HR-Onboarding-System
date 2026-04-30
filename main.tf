@@ -10,6 +10,17 @@ resource "aws_dynamodb_table" "employees" {
     type = "S"
   }
 
+  attribute {
+    name = "CompanyEmail"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "CompanyEmailIndex"
+    hash_key        = "CompanyEmail"
+    projection_type = "ALL"
+  }
+
   # Enables the stream for the Slack Provisioner to listen to for events
   stream_enabled   = true
   stream_view_type = "NEW_IMAGE"
@@ -50,7 +61,8 @@ resource "aws_iam_role_policy" "hr_processor_policy" {
           Effect = "Allow"
           Action = [
             "dynamodb:PutItem",
-            "dynamodb:GetItem"
+            "dynamodb:GetItem",
+            "dynamodb:Scan"
           ]
           Resource = aws_dynamodb_table.employees.arn
         },
@@ -62,6 +74,15 @@ resource "aws_iam_role_policy" "hr_processor_policy" {
             "logs:PutLogEvents"
           ]
           Resource = "arn:aws:logs:*:*:*"
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "dynamodb:Query"
+          ]
+          Resource = [
+            "arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/${var.table_name}/index/CompanyEmailIndex"
+          ]
         }
       ]
     }

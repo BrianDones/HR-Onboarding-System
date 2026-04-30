@@ -27,3 +27,9 @@ variable "application_version" {
   type        = string
   default     = "0"
 }
+
+variable "account_id" {
+  description = "The AWS Account ID"
+  type        = string
+  default     = ""
+}

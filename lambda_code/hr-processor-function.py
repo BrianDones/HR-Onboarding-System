@@ -16,6 +16,34 @@ def generate_user_id(length=10):
     characters = string.ascii_letters + string.digits
     return ''.join(random.choice(characters) for _ in range(length))
 
+def generate_unique_email(first_name, last_name):
+    """
+    Generates a unique company email address. 
+    Checks DynamoDB for collisions and appends a number if needed. 
+    """
+    base_email = f"{first_name.lower()}.{last_name.lower()}"
+    email = f"{base_email}@{COMPANY_DOMAIN}"
+
+    counter = 1
+    unique = False
+
+    while not unique: 
+        # Check if this email is already assigned to anyone in the 'CompanyEmail' index
+        # This requires a Global Secondary Index on 'CompanyEmail' so we can perform our check
+
+        response = table.query(
+            IndexName = 'CompanyEmailIndex',
+            KeyConditionExpression=Key('CompanyEmail').eq(email)
+        )
+
+        if not response.get('Items'):
+            unique = True
+        else: 
+            counter += 1
+            email = f"{base_email}{counter}@{COMPANY_DOMAIN}"
+
+    return email
+
 def handler(event, context):
     logger.info(f"Received event: {json.dumps(event)}")
 
@@ -43,6 +71,9 @@ def handler(event, context):
                 'body': json.dumps({'error': 'Missing required fields: firstName, lastName, personalEmail'})
             }
 
+        # Generate a unique company email address
+        company_email = generate_unique_email(first_name, last_name)
+
         # Generate a unique 10-character ID
         user_id = generate_user_id(10)
 
@@ -55,6 +86,7 @@ def handler(event, context):
             'FirstName': first_name,
             'LastName': last_name,
             'PersonalEmail': personal_email,
+            'CompanyEmail': company_email,
             'SlackStatus': 'PENDING', # This is the initial state for all provisioned users until the slack integration triggers the slack invite
             'CreatedAt': created_at,
             'CreatedBy': created_by
@@ -73,7 +105,7 @@ def handler(event, context):
             },
             'body': json.dumps({
                 "message": f"Employee {first_name} {last_name} was created successfully",
-                "personalEmail": personal_email,
+                "companyEmail": company_email,
                 "userId": user_id
                 })
         }

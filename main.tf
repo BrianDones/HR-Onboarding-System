@@ -50,6 +50,7 @@ resource "aws_iam_role" "hr_processor_role" {
 # HR Processor Policy to allow Lambda to: 
 # - Write to the Employees DynamoDB table
 # - Create and update Log Groups/streams with important messages from lambda executions
+# - Allows access to get items and scan the Employees DynamoDB table (for GET method)
 resource "aws_iam_role_policy" "hr_processor_policy" {
   name = "hr-processor-policy"
   role = aws_iam_role.hr_processor_role.id
@@ -255,6 +256,26 @@ resource "aws_lambda_function" "hr_processor" {
   depends_on = [aws_iam_role_policy.hr_processor_policy]
 }
 
+# Slack Provisioner Lambda Function used to: 
+# - Integrate and initiate a company slack account for new employees added to the employees database
+resource "aws_lambda_function" "slack_provisioner" {
+  filename         = data.archive_file.lambda_functions_zip.output_path
+  source_code_hash = data.archive_file.lambda_functions_zip.output_base64sha256
+  function_name    = "slack_provisioner"
+  role             = aws_iam_role.slack_provisioner_role.arn
+  handler          = "slack-provisioner-function.handler"
+  runtime          = "python3.13"
+
+  environment {
+    variables = {
+      SLACK_SECRET_NAME = var.slack_secret_name
+      TABLE_NAME        = aws_dynamodb_table.employees.name
+    }
+  }
+
+  depends_on = [aws_iam_role_policy.slack_provisioner_policy]
+}
+
 # 5. API Gateway Permissions to Invote Lambda Functions
 resource "aws_lambda_permission" "apigw_hr_processor_lambda" {
   statement_id  = "AllowExecutionFromAPIGateway"
@@ -264,4 +285,13 @@ resource "aws_lambda_permission" "apigw_hr_processor_lambda" {
   source_arn    = "${aws_api_gateway_rest_api.employees_api.execution_arn}/*/*"
 
   depends_on = [aws_api_gateway_deployment.employee_api_deployment]
+}
+
+# 6. Event Source Mapping: DynamoDB Stream to Slack Provisioner Lambda Function
+# This is the mechanism which forms the integration between the employees database and Slack.
+resource "aws_lambda_event_source_mapping" "dynamodb_to_slack" {
+  event_source_arn  = aws_dynamodb_table.employees.stream_arn
+  function_name     = aws_lambda_function.slack_provisioner.arn
+  starting_position = "LATEST"
+  batch_size        = 1
 }

@@ -166,10 +166,18 @@ resource "aws_api_gateway_rest_api" "employees_api" {
   description = "API for the HR Onboarding System for new employees"
 }
 
+# Gateway resource for POST method
 resource "aws_api_gateway_resource" "employee_resource" {
   rest_api_id = aws_api_gateway_rest_api.employees_api.id
   parent_id   = aws_api_gateway_rest_api.employees_api.root_resource_id
   path_part   = "employees"
+}
+
+#Gateway resource for GET method
+resource "aws_api_gateway_resource" "get_employee_resource" {
+  rest_api_id = aws_api_gateway_rest_api.employees_api.id
+  parent_id   = aws_api_gateway_resource.employee_resource.id
+  path_part   = "{UserId}" # path parameter to target GET Method
 }
 
 # POST Method
@@ -192,6 +200,24 @@ resource "aws_api_gateway_integration" "post_employee_integration" {
   depends_on = [aws_api_gateway_method.post_employee]
 }
 
+# GET Method
+resource "aws_api_gateway_method" "get_employee" {
+  rest_api_id   = aws_api_gateway_rest_api.employees_api.id
+  resource_id   = aws_api_gateway_resource.get_employee_resource.id
+  http_method   = "GET"
+  authorization = "None"
+}
+
+# GET Method Integration
+resource "aws_api_gateway_integration" "get_employee_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.employees_api.id
+  resource_id             = aws_api_gateway_resource.get_employee_resource.id
+  http_method             = aws_api_gateway_method.get_employee.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.get_employee.invoke_arn
+}
+
 # API Gateway Deployment & Stage
 # For information regarding API Gateway Deployments and Stages, 
 # please refer to Amazon's documentation: 
@@ -205,7 +231,8 @@ resource "aws_api_gateway_deployment" "employee_api_deployment" {
   triggers = {
     redeployment = sha1(jsonencode(
       [
-        aws_api_gateway_method.post_employee.id
+        aws_api_gateway_method.post_employee.id,
+        aws_api_gateway_method.get_employee.id
       ]
     ))
   }
@@ -215,7 +242,8 @@ resource "aws_api_gateway_deployment" "employee_api_deployment" {
   }
 
   depends_on = [
-    aws_api_gateway_integration.post_employee_integration
+    aws_api_gateway_integration.post_employee_integration,
+    aws_api_gateway_integration.get_employee_integration
   ]
 }
 
@@ -276,6 +304,26 @@ resource "aws_lambda_function" "slack_provisioner" {
   depends_on = [aws_iam_role_policy.slack_provisioner_policy]
 }
 
+# Get Employee Lambda Function used to: 
+# - Retrieve information about an employee provided their employee user id
+resource "aws_lambda_function" "get_employee" {
+  filename         = data.archive_file.lambda_functions_zip.output_path
+  source_code_hash = data.archive_file.lambda_functions_zip.output_base64sha256
+  function_name    = "get_employee"
+# Reusing the processor role to avoid excessive policy/role creation
+  role             = aws_iam_role.hr_processor_role.arn 
+  handler          = "get-employee-function.handler"
+  runtime          = "python3.13"
+
+  environment {
+    variables = {
+      TABLE_NAME = aws_dynamodb_table.employees.name
+    }
+  }
+# Reusing the processor policy to avoid excessive policy/role creation
+  depends_on = [aws_iam_role_policy.hr_processor_policy]
+}
+
 # 5. API Gateway Permissions to Invote Lambda Functions
 resource "aws_lambda_permission" "apigw_hr_processor_lambda" {
   statement_id  = "AllowExecutionFromAPIGateway"
@@ -285,6 +333,16 @@ resource "aws_lambda_permission" "apigw_hr_processor_lambda" {
   source_arn    = "${aws_api_gateway_rest_api.employees_api.execution_arn}/*/*"
 
   depends_on = [aws_api_gateway_deployment.employee_api_deployment]
+}
+
+resource "aws_lambda_permission" "apigw_get_employee_lambda" {
+  statement_id  = "AllowAPIGatewayInvokeGet"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.get_employee.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.employees_api.execution_arn}/*/*"
+
+  depends_on    = [aws_api_gateway_deployment.employee_api_deployment]
 }
 
 # 6. Event Source Mapping: DynamoDB Stream to Slack Provisioner Lambda Function

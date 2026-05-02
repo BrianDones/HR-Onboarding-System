@@ -22,3 +22,13 @@ output "hr_processor_role_arn" {
   description = "The ARN of the IAM role for the HR Processor"
   value       = aws_iam_role.hr_processor_role.arn
 }
+
+output "user_pool_id" {
+  description = "The ID of the Cognito User Pool."
+  value       = aws_cognito_user_pool.hr_staff_pool.id
+}
+
+output "client_id" {
+  description = "The ID of the Cognito User Pool Client."
+  value       = aws_cognito_user_pool_client.hr_staff_client.id
+}

@@ -171,6 +171,8 @@ resource "aws_api_gateway_resource" "employee_resource" {
   rest_api_id = aws_api_gateway_rest_api.employees_api.id
   parent_id   = aws_api_gateway_rest_api.employees_api.root_resource_id
   path_part   = "employees"
+
+  depends_on  = [aws_api_gateway_authorizer.cognito_authorization]
 }
 
 #Gateway resource for GET method
@@ -185,7 +187,8 @@ resource "aws_api_gateway_method" "post_employee" {
   rest_api_id   = aws_api_gateway_rest_api.employees_api.id
   resource_id   = aws_api_gateway_resource.employee_resource.id
   http_method   = "POST"
-  authorization = "None"
+  authorization = "COGNITO_USER_POOLS"
+  authorizer_id = aws_api_gateway_authorizer.cognito_authorization.id
 }
 
 # POST Method Integration
@@ -205,7 +208,8 @@ resource "aws_api_gateway_method" "get_employee" {
   rest_api_id   = aws_api_gateway_rest_api.employees_api.id
   resource_id   = aws_api_gateway_resource.get_employee_resource.id
   http_method   = "GET"
-  authorization = "None"
+  authorization = "COGNITO_USER_POOLS"
+  authorizer_id = aws_api_gateway_authorizer.cognito_authorization.id
 }
 
 # GET Method Integration
@@ -243,7 +247,8 @@ resource "aws_api_gateway_deployment" "employee_api_deployment" {
 
   depends_on = [
     aws_api_gateway_integration.post_employee_integration,
-    aws_api_gateway_integration.get_employee_integration
+    aws_api_gateway_integration.get_employee_integration,
+    aws_api_gateway_authorizer.cognito_authorization
   ]
 }
 
@@ -352,4 +357,69 @@ resource "aws_lambda_event_source_mapping" "dynamodb_to_slack" {
   function_name     = aws_lambda_function.slack_provisioner.arn
   starting_position = "LATEST"
   batch_size        = 1
+}
+
+# 7. HR Staff Cognito User Pool
+resource "aws_cognito_user_pool" "hr_staff_pool" {
+  name = "hr-staff-pool"
+
+  # Enforce strong passwords
+  password_policy {
+    minimum_length    = 10
+    require_lowercase = true
+    require_numbers   = true
+    require_symbols   = true
+    require_uppercase = true
+  }
+
+  # Cognito User's First Name Attribute
+  schema {
+    attribute_data_type      = "String"
+    developer_only_attribute = false
+    mutable                  = true
+    # given_name is the standard OIDC name for the user's First Name
+    name                     = "given_name"
+    required                 = true
+
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 50
+    }
+  }
+
+  # Cognito User's Last Name Attribute
+  schema {
+    attribute_data_type      = "String"
+    developer_only_attribute = false
+    mutable                  = true
+    # family_name is the standard OIDC name for the user's Last Name
+    name                     = "family_name"
+    required                 = true
+
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 50
+    }
+  }
+
+  admin_create_user_config {
+    # This restricts adding new HR staff members to admin users only
+    allow_admin_create_user_only = true
+  }
+}
+
+# 8. App Client that allows authentication through a frontend or CLI
+resource "aws_cognito_user_pool_client" "hr_staff_client" {
+  name         = "hr-onboarding-app"
+  user_pool_id = aws_cognito_user_pool.hr_staff_pool.id
+
+  explicit_auth_flows = ["USER_PASSWORD_AUTH"]
+}
+
+# 9. An Authorizer that ensures the API Gateway checks tokens against Cognito
+resource "aws_api_gateway_authorizer" "cognito_authorization" {
+  name          = "CognitoAuthorizer-v${var.application_version}"
+  rest_api_id   = aws_api_gateway_rest_api.employees_api.id
+  type          = "COGNITO_USER_POOLS"
+  provider_arns = [aws_cognito_user_pool.hr_staff_pool.arn]
 }

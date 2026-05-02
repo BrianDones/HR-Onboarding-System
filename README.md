@@ -17,13 +17,13 @@ You should never use your AWS **Root** account. Instead, we are going to set up 
 2. Select **Policies** > **Create policy**. 
 3. Click on the **JSON** tab, paste in the content of the **Terraform-Permissions.json** file found in this github repo, then select **Next**. 
 
-**Important Note**: Make sure you replace the AWS Account ID with your unique AWS Account ID. Do NOT share this value if you end up storing any of your files in github or some publicly accessible space. 
+**Important Note**: Make sure you replace the AWS Account ID with your unique AWS Account ID and you use the name of your S3 bucket where you will host the Terraform State file. Do NOT share these values if you end up storing any of your files in github or some publicly accessible space. 
 
 4. Name your policy *Terraform-Permissions* and click **Create policy**. 
 
 ### 4. Create your Terraform AWS Credentials
 1. Search for **IAM Identity Center** at the top of the AWS Console.
-2. Click **Enable** and set up IAM identity Center. *Note*: Make sure you are in the appropriate region in the top of the AWS console. I used *us-east-1*. 
+2. Click **Enable** and set up IAM Identity Center. *Note*: Make sure you are in the appropriate region in the top of the AWS console. I used *us-east-1*. 
 3. Select **Users** > **Add user**. Provide a username (.e.g. Terraform-User) and fill in the rest of the user's details. 
 4. Select **Next** > **Next** > **Add user**. If you selected the option to setup your password through email, follow those instructions; otherwise, use the password that was provided.
 5. Go to **Permission sets** > **Create permission set**. Select **Custom permission set** > **Next**.
@@ -91,7 +91,7 @@ For our System's architecture we will be focusing on an **serverless event-drive
 
 ### Compute Layer: AWS Lambda
 
-AWS Lambda is a great choice for our compute layer because we can decouple our solution into seperate lambda functions that handle specific tasks and features (e.g. `hr-processor`, `slack-provisioner`, etc). By breaking up our solution into these split lambda functions, our HR Onboarding System will not fail to add new employee information if the Slack Provisioning API fails. We can always retry the Slack invitation at a later point independent of the other lambda functions. We are also better able to troubleshoot issues with our lambda functions when our functions are designed to focus on one specific task. 
+AWS Lambda is a great choice for our compute layer because we can decouple our solution into seperate lambda functions that handle specific tasks and features (e.g. `hr-processor`, `slack-provisioner`, etc). By breaking up our solution into these split lambda functions, our HR Onboarding System will not fail to add new employee information if the Slack Provisioning API fails. We can always retry the Slack invitation at a later point independent of the other lambda functions. We are also better able to troubleshoot issues with our lambda functions when our functions are designed to focus on one specific task. Similar to API Gateway, Lambda is also a cost-efficient option for us due to the pay for what you use nature of Lambda. 
 
 ### Data Layer: Amazon DynamoDB with Streams
 
@@ -118,3 +118,59 @@ To help us and manage our solution, we will be using Terraform as our Instractur
 6. When we are ready to remove all our resources for this solution, we can run a `terraform destroy` command and Terraform will delete all resources that Terraform manages. 
 
 **Note**: The resources that were manually created outside of Terraform that was part of our setup does need to be manually deleted.
+
+## Deploying the HR Onboarding System
+1. To deploy the infrastructure and resources for our solution, we need to first log in with our Terraform credentials we set up earlier:
+
+```bash
+$ aws sso login --profile Terraform-User
+```
+
+You should get a long link that starts with `https://odic*` and a tab should open up in your default browser prompting you to login with your Terraform-User credentials. If you do not see this tab open, copy the link into the browser of your choice and login. 
+
+2. Next we need to initialize Terraform which we can do by running the following command from the directory/folder we have our Terraform templates saved for this project: 
+
+```bash
+$ pwd
+/c/Users/Brian/path/to/the/project/HR-Onboarding-System
+
+$ terraform init -backend-config="backend.conf"
+```
+**Note**: An example of the backend.conf file can be found in `Example Files/backend-example.txt` of this project repository. Be sure to update the file for your specific S3 bucket ARN and SSO User Profile. 
+
+3. Ensure that the Terraform files are appropriately formatted and verify there are no errors: 
+
+```bash
+$ terraform fmt
+$ terraform validate
+```
+
+You can also run a plan to see a list of the resources and changes Terraform will perform: 
+```bash
+$ terraform plan
+```
+
+4. If there are no error messages with the validate or plan commands, run a terraform apply: 
+
+```bash
+$ terraform apply
+```
+*Answer 'yes' when prompted by terraform*
+
+5. After Terraform finishes building all the resources, you should see a similar output to the below. Log into your AWS console and verify your resources were successfully built.
+
+```bash
+Apply complete! Resources: 23 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+api_endpoint = "https://<API ID>.execute-api.us-east-1.amazonaws.com/staging/employees"
+client_id = "<Client ID>"
+dynamodb_table_arn = "arn:aws:dynamodb:us-east-1:<AWS_Account_ID>:table/EmployeesTable"
+dynamodb_table_name = "EmployeesTable"
+hr_processor_lambda_name = "hr_processor"
+hr_processor_role_arn = "arn:aws:iam::<AWS_Account_ID>:role/hr-processor-role"
+user_pool_id = "<Cognito User Pool ID>"
+```
+
+**Important Note**: Be sure to save these values, you will need some of those values to interact with the API. 

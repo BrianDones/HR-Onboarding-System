@@ -166,10 +166,20 @@ resource "aws_api_gateway_rest_api" "employees_api" {
   description = "API for the HR Onboarding System for new employees"
 }
 
+# Gateway resource for POST method
 resource "aws_api_gateway_resource" "employee_resource" {
   rest_api_id = aws_api_gateway_rest_api.employees_api.id
   parent_id   = aws_api_gateway_rest_api.employees_api.root_resource_id
   path_part   = "employees"
+
+  depends_on  = [aws_api_gateway_authorizer.cognito_authorization]
+}
+
+#Gateway resource for GET method
+resource "aws_api_gateway_resource" "get_employee_resource" {
+  rest_api_id = aws_api_gateway_rest_api.employees_api.id
+  parent_id   = aws_api_gateway_resource.employee_resource.id
+  path_part   = "{UserId}" # path parameter to target GET Method
 }
 
 # POST Method
@@ -177,7 +187,8 @@ resource "aws_api_gateway_method" "post_employee" {
   rest_api_id   = aws_api_gateway_rest_api.employees_api.id
   resource_id   = aws_api_gateway_resource.employee_resource.id
   http_method   = "POST"
-  authorization = "None"
+  authorization = "COGNITO_USER_POOLS"
+  authorizer_id = aws_api_gateway_authorizer.cognito_authorization.id
 }
 
 # POST Method Integration
@@ -190,6 +201,25 @@ resource "aws_api_gateway_integration" "post_employee_integration" {
   uri                     = aws_lambda_function.hr_processor.invoke_arn
 
   depends_on = [aws_api_gateway_method.post_employee]
+}
+
+# GET Method
+resource "aws_api_gateway_method" "get_employee" {
+  rest_api_id   = aws_api_gateway_rest_api.employees_api.id
+  resource_id   = aws_api_gateway_resource.get_employee_resource.id
+  http_method   = "GET"
+  authorization = "COGNITO_USER_POOLS"
+  authorizer_id = aws_api_gateway_authorizer.cognito_authorization.id
+}
+
+# GET Method Integration
+resource "aws_api_gateway_integration" "get_employee_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.employees_api.id
+  resource_id             = aws_api_gateway_resource.get_employee_resource.id
+  http_method             = aws_api_gateway_method.get_employee.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.get_employee.invoke_arn
 }
 
 # API Gateway Deployment & Stage
@@ -205,7 +235,8 @@ resource "aws_api_gateway_deployment" "employee_api_deployment" {
   triggers = {
     redeployment = sha1(jsonencode(
       [
-        aws_api_gateway_method.post_employee.id
+        aws_api_gateway_method.post_employee.id,
+        aws_api_gateway_method.get_employee.id
       ]
     ))
   }
@@ -215,7 +246,9 @@ resource "aws_api_gateway_deployment" "employee_api_deployment" {
   }
 
   depends_on = [
-    aws_api_gateway_integration.post_employee_integration
+    aws_api_gateway_integration.post_employee_integration,
+    aws_api_gateway_integration.get_employee_integration,
+    aws_api_gateway_authorizer.cognito_authorization
   ]
 }
 
@@ -276,6 +309,26 @@ resource "aws_lambda_function" "slack_provisioner" {
   depends_on = [aws_iam_role_policy.slack_provisioner_policy]
 }
 
+# Get Employee Lambda Function used to: 
+# - Retrieve information about an employee provided their employee user id
+resource "aws_lambda_function" "get_employee" {
+  filename         = data.archive_file.lambda_functions_zip.output_path
+  source_code_hash = data.archive_file.lambda_functions_zip.output_base64sha256
+  function_name    = "get_employee"
+# Reusing the processor role to avoid excessive policy/role creation
+  role             = aws_iam_role.hr_processor_role.arn 
+  handler          = "get-employee-function.handler"
+  runtime          = "python3.13"
+
+  environment {
+    variables = {
+      TABLE_NAME = aws_dynamodb_table.employees.name
+    }
+  }
+# Reusing the processor policy to avoid excessive policy/role creation
+  depends_on = [aws_iam_role_policy.hr_processor_policy]
+}
+
 # 5. API Gateway Permissions to Invote Lambda Functions
 resource "aws_lambda_permission" "apigw_hr_processor_lambda" {
   statement_id  = "AllowExecutionFromAPIGateway"
@@ -287,6 +340,16 @@ resource "aws_lambda_permission" "apigw_hr_processor_lambda" {
   depends_on = [aws_api_gateway_deployment.employee_api_deployment]
 }
 
+resource "aws_lambda_permission" "apigw_get_employee_lambda" {
+  statement_id  = "AllowAPIGatewayInvokeGet"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.get_employee.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.employees_api.execution_arn}/*/*"
+
+  depends_on    = [aws_api_gateway_deployment.employee_api_deployment]
+}
+
 # 6. Event Source Mapping: DynamoDB Stream to Slack Provisioner Lambda Function
 # This is the mechanism which forms the integration between the employees database and Slack.
 resource "aws_lambda_event_source_mapping" "dynamodb_to_slack" {
@@ -294,4 +357,69 @@ resource "aws_lambda_event_source_mapping" "dynamodb_to_slack" {
   function_name     = aws_lambda_function.slack_provisioner.arn
   starting_position = "LATEST"
   batch_size        = 1
+}
+
+# 7. HR Staff Cognito User Pool
+resource "aws_cognito_user_pool" "hr_staff_pool" {
+  name = "hr-staff-pool"
+
+  # Enforce strong passwords
+  password_policy {
+    minimum_length    = 10
+    require_lowercase = true
+    require_numbers   = true
+    require_symbols   = true
+    require_uppercase = true
+  }
+
+  # Cognito User's First Name Attribute
+  schema {
+    attribute_data_type      = "String"
+    developer_only_attribute = false
+    mutable                  = true
+    # given_name is the standard OIDC name for the user's First Name
+    name                     = "given_name"
+    required                 = true
+
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 50
+    }
+  }
+
+  # Cognito User's Last Name Attribute
+  schema {
+    attribute_data_type      = "String"
+    developer_only_attribute = false
+    mutable                  = true
+    # family_name is the standard OIDC name for the user's Last Name
+    name                     = "family_name"
+    required                 = true
+
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 50
+    }
+  }
+
+  admin_create_user_config {
+    # This restricts adding new HR staff members to admin users only
+    allow_admin_create_user_only = true
+  }
+}
+
+# 8. App Client that allows authentication through a frontend or CLI
+resource "aws_cognito_user_pool_client" "hr_staff_client" {
+  name         = "hr-onboarding-app"
+  user_pool_id = aws_cognito_user_pool.hr_staff_pool.id
+
+  explicit_auth_flows = ["USER_PASSWORD_AUTH"]
+}
+
+# 9. An Authorizer that ensures the API Gateway checks tokens against Cognito
+resource "aws_api_gateway_authorizer" "cognito_authorization" {
+  name          = "CognitoAuthorizer-v${var.application_version}"
+  rest_api_id   = aws_api_gateway_rest_api.employees_api.id
+  type          = "COGNITO_USER_POOLS"
+  provider_arns = [aws_cognito_user_pool.hr_staff_pool.arn]
 }
